@@ -63,6 +63,7 @@ function App() {
     sendingFile,
     outgoingOffer,
     isOutgoingPaused,
+    isIncomingPaused,
     sendingTelemetry,
     receivingTelemetry,
     pauseOutgoing,
@@ -79,8 +80,6 @@ function App() {
   const [joinInput, setJoinInput] = useState("");
   const [joinedSessionId, setJoinedSessionId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [showUploadMenu, setShowUploadMenu] = useState(false);
-  const uploadMenuRef = useRef<HTMLDivElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
   const pickerTimeoutRef = useRef<number | null>(null);
   const pickerReturnCheckRef = useRef<number | null>(null);
@@ -117,6 +116,7 @@ function App() {
   const toastTimerRef = useRef<number | null>(null);
   const prevStatusRef = useRef<typeof status>(status);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
   const [scanPanelOpen, setScanPanelOpen] = useState(false);
   const [scanJoinPending, setScanJoinPending] = useState(false);
   const [scanJoinCandidateId, setScanJoinCandidateId] = useState<string | null>(
@@ -258,6 +258,7 @@ function App() {
   useEffect(() => {
     if (!displaySessionId) {
       setQrDataUrl(null);
+      setQrModalOpen(false);
       return;
     }
 
@@ -284,6 +285,15 @@ function App() {
     logEvent("ui", "qr-scan-fail", { message: scanError });
     showToast(scanError);
   }, [scanError, showToast]);
+
+  useEffect(() => {
+    if (!qrModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setQrModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [qrModalOpen]);
 
   useEffect(() => {
     const latest = history[history.length - 1];
@@ -391,25 +401,6 @@ function App() {
       totalBytes: outgoingOffer.totalBytes,
     });
   }, [outgoingOffer]);
-
-  useEffect(() => {
-    if (!showUploadMenu) return;
-
-    function handleOutsideClick(event: MouseEvent): void {
-      if (!uploadMenuRef.current) return;
-      if (
-        event.target instanceof Node &&
-        !uploadMenuRef.current.contains(event.target)
-      ) {
-        setShowUploadMenu(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [showUploadMenu]);
 
   useEffect(() => {
     if (!incomingOffer) return;
@@ -527,7 +518,6 @@ function App() {
     if (items.length === 0) clearPickerPending("empty-selection");
     event.target.value = ""; // allow re-selecting the same file(s) later
     if (items.length > 0) void send(items);
-    setShowUploadMenu(false);
   }
 
   function openFilePicker(): void {
@@ -535,7 +525,6 @@ function App() {
     logEvent("ui", "file-picker-open-clicked", { kind: "files" });
     setPickerPending({ kind: "files", startedAt: Date.now() });
     setPickerElapsedSeconds(0);
-    setShowUploadMenu(false);
     filesInputRef.current?.click();
   }
 
@@ -568,15 +557,7 @@ function App() {
         <p className="subtitle">
           Fast browser-to-browser file delivery with zero cloud upload.
         </p>
-        <figure className="hero-sprite-wrap" aria-hidden="true">
-          <img
-            className="hero-sprite"
-            src={goldenRetrieverSprite}
-            alt=""
-            width={280}
-            height={192}
-          />
-        </figure>
+        <HeroPlayground />
       </section>
 
       <section className="surface">
@@ -596,8 +577,14 @@ function App() {
         {status === "idle" && (
           <section className="onboarding">
             <p className="network-tip" role="note">
-              Best results: keep both devices on the same Wi-Fi network when
-              creating or joining a session.
+              <span className="network-tip-icon" aria-hidden="true">
+                🐾
+              </span>
+              <span className="network-tip-text">
+                <strong>Delivery tip</strong>
+                Keep both devices on the same Wi-Fi so the pup can find its
+                way between them.
+              </span>
             </p>
             <button
               type="button"
@@ -676,48 +663,61 @@ function App() {
               <button type="button" onClick={() => void copySessionId()}>
                 {copied ? "Copied" : "Copy"}
               </button>
+              {role === "host" && (
+                <button
+                  type="button"
+                  onClick={() => setQrModalOpen(true)}
+                  disabled={!qrDataUrl}
+                  aria-haspopup="dialog"
+                >
+                  QR
+                </button>
+              )}
             </div>
-            {role === "host" && (
-              <div className="share-qr">
-                {qrDataUrl ? (
-                  <img
-                    src={qrDataUrl}
-                    alt="QR code for joining this session"
-                    width={170}
-                    height={170}
-                  />
-                ) : (
-                  <p className="share-qr-fallback">Generating QR...</p>
-                )}
-              </div>
-            )}
           </section>
+        )}
+
+        {qrModalOpen && qrDataUrl && (
+          <div
+            className="qr-modal-overlay"
+            role="presentation"
+            onClick={() => setQrModalOpen(false)}
+          >
+            <div
+              className="qr-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Session QR code"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={qrDataUrl}
+                alt="QR code for joining this session"
+                width={220}
+                height={220}
+              />
+              <code>{displaySessionId}</code>
+              <p className="qr-modal-hint">
+                Scan with the other device to join this session.
+              </p>
+              <button type="button" onClick={() => setQrModalOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
         )}
 
         {status === "connected" && (
           <section className="transfer">
             <div className="upload-panel">
-              <div className="upload-menu-wrap" ref={uploadMenuRef}>
-                <button
-                  type="button"
-                  className="upload-trigger"
-                  onClick={() => setShowUploadMenu((current) => !current)}
-                  disabled={isUploadBusy}
-                >
-                  Upload
-                </button>
-                {showUploadMenu && (
-                  <div
-                    className="upload-menu"
-                    role="menu"
-                    aria-label="Upload options"
-                  >
-                    <button type="button" onClick={openFilePicker}>
-                      Files
-                    </button>
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                className="upload-trigger"
+                onClick={openFilePicker}
+                disabled={isUploadBusy}
+              >
+                Upload files
+              </button>
 
               <input
                 ref={filesInputRef}
@@ -733,6 +733,9 @@ function App() {
               <TransferBeacon
                 mode={sendingFile ? "sending" : "receiving"}
                 path={activeTransfer.relativePath}
+                paused={
+                  sendingFile ? isOutgoingPaused : isIncomingPaused
+                }
               />
             )}
 
@@ -1023,25 +1026,272 @@ function TransferProgress({
   );
 }
 
+function RunningDogSvg({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 132 84"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* tail */}
+      <path
+        className="dog-tail"
+        d="M30 40C22 33 16 25 17 15"
+        stroke="#D79D53"
+        strokeWidth="9"
+        strokeLinecap="round"
+      />
+      {/* far-side legs */}
+      <rect className="dog-leg dog-leg--back-far" x="38" y="54" width="8" height="24" rx="4" fill="#B9762C" />
+      <rect className="dog-leg dog-leg--front-far" x="76" y="54" width="8" height="24" rx="4" fill="#B9762C" />
+      {/* body */}
+      <ellipse cx="60" cy="48" rx="33" ry="19" fill="#D99A4A" />
+      <ellipse cx="78" cy="52" rx="14" ry="13" fill="#E6B468" />
+      {/* near-side legs */}
+      <rect className="dog-leg dog-leg--back-near" x="48" y="54" width="8" height="24" rx="4" fill="#C57A31" />
+      <rect className="dog-leg dog-leg--front-near" x="86" y="54" width="8" height="24" rx="4" fill="#C57A31" />
+      {/* head */}
+      <circle cx="97" cy="30" r="16" fill="#E5B363" />
+      <ellipse cx="88" cy="21" rx="7" ry="11" transform="rotate(-24 88 21)" fill="#BF7A33" />
+      <ellipse cx="109" cy="34" rx="9" ry="7" fill="#F7D59A" />
+      <circle cx="103" cy="26" r="2.6" fill="#2E2118" />
+      <circle cx="116.5" cy="31.5" r="2.8" fill="#2E2118" />
+      {/* parcel carried in the mouth */}
+      <g className="dog-parcel">
+        <rect x="108" y="38" width="19" height="14" rx="2.5" fill="#B9772F" />
+        <rect x="116" y="38" width="3.5" height="14" fill="#F1DDB6" />
+        <rect x="108" y="43.5" width="19" height="3" fill="#F1DDB6" opacity="0.85" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * Hero mascot playground: one master 16s timeline drives the dog running
+ * right, jumping, running back left, jumping, trotting to the center,
+ * sitting down, and barking ("Woof!") before looping. The run/sit poses
+ * are two stacked elements crossfaded by the same timeline so the gallop
+ * animation never has to pause mid-cycle.
+ *
+ * Easter eggs:
+ * - Click the dog for a startled hop; five rapid clicks trigger zoomies.
+ * - Drag files over the page and the dog chases the cursor, expecting a
+ *   game of fetch ("Got it!" on drop).
+ * - Between midnight and 5 AM the pup is asleep in the middle of the
+ *   stage (Zzz…).
+ */
+function HeroPlayground() {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const dogRef = useRef<HTMLDivElement>(null);
+  const clickTimesRef = useRef<number[]>([]);
+  const reactTimerRef = useRef<number | null>(null);
+  const lastFetchXRef = useRef<number | null>(null);
+  const [reaction, setReaction] = useState<"boop" | "zoomies" | null>(null);
+  const [say, setSay] = useState<string | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [isAsleep, setIsAsleep] = useState(() => new Date().getHours() < 5);
+
+  const react = (
+    kind: "boop" | "zoomies",
+    text: string,
+    durationMs: number,
+  ) => {
+    if (reactTimerRef.current !== null) {
+      window.clearTimeout(reactTimerRef.current);
+    }
+    setReaction(kind);
+    setSay(text);
+    reactTimerRef.current = window.setTimeout(() => {
+      setReaction(null);
+      setSay(null);
+      reactTimerRef.current = null;
+    }, durationMs);
+  };
+
+  const handleDogClick = () => {
+    // A click can land inside the post-drop "Got it!" window; since it
+    // replaces the timer that would end fetch mode, end it here too.
+    setIsFetching(false);
+    lastFetchXRef.current = null;
+    const now = Date.now();
+    const recent = clickTimesRef.current.filter((t) => now - t < 2500);
+    recent.push(now);
+    clickTimesRef.current = recent;
+    if (recent.length >= 5) {
+      clickTimesRef.current = [];
+      react("zoomies", "Zoomies!!", 1900);
+    } else {
+      react("boop", isAsleep ? "…zzz" : "Woof!?", 950);
+    }
+  };
+
+  // The pup keeps human hours: asleep between midnight and 5 AM.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setIsAsleep(new Date().getHours() < 5);
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (reactTimerRef.current !== null) {
+        window.clearTimeout(reactTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  // Fetch mode: while files are dragged over the window the dog chases
+  // the cursor along the stage; dropping earns a triumphant "Got it!".
+  // preventDefault also stops the browser from navigating to a dropped
+  // file anywhere on the page.
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes("Files");
+
+    const endFetch = () => {
+      setIsFetching(false);
+      lastFetchXRef.current = null;
+    };
+
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      setIsFetching(true);
+      const stage = stageRef.current;
+      const dog = dogRef.current;
+      if (!stage || !dog) return;
+      const rect = stage.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const dogWidth = dog.offsetWidth;
+      const clamped = Math.min(
+        Math.max(event.clientX - rect.left - dogWidth / 2, 0),
+        Math.max(rect.width - dogWidth, 0),
+      );
+      const pct = (clamped / rect.width) * 100;
+      const last = lastFetchXRef.current;
+      if (last !== null && Math.abs(pct - last) > 0.5) {
+        dog.style.setProperty("--fetch-dir", pct > last ? "1" : "-1");
+      }
+      lastFetchXRef.current = pct;
+      dog.style.setProperty("--fetch-x", `${pct}%`);
+    };
+
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (reactTimerRef.current !== null) {
+        window.clearTimeout(reactTimerRef.current);
+      }
+      setReaction("boop");
+      setSay("Got it!");
+      reactTimerRef.current = window.setTimeout(() => {
+        setReaction(null);
+        setSay(null);
+        reactTimerRef.current = null;
+        endFetch();
+      }, 1400);
+    };
+
+    const onDragLeave = (event: DragEvent) => {
+      if (event.relatedTarget === null) endFetch();
+    };
+
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("dragend", endFetch);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("dragend", endFetch);
+    };
+  }, []);
+
+  const stageClasses = [
+    "hero-stage",
+    isAsleep ? "hero-stage--sleep" : "",
+    isFetching ? "hero-stage--fetch" : "",
+    reaction !== null ? "hero-stage--paused" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div ref={stageRef} className={stageClasses} aria-hidden="true">
+      <div ref={dogRef} className="hero-dog" onClick={handleDogClick}>
+        <div className="hero-dog-jump">
+          <div
+            className={`hero-dog-react${
+              reaction !== null ? ` hero-react--${reaction}` : ""
+            }`}
+          >
+            <div className="hero-dog-flip">
+              <div className="hero-pose hero-pose--run">
+                <RunningDogSvg className="hero-run-svg" />
+              </div>
+              <img
+                className="hero-pose hero-pose--sit"
+                src={goldenRetrieverSprite}
+                alt=""
+                width={110}
+                height={115}
+              />
+            </div>
+          </div>
+          <span className="hero-woof hero-woof--one">Woof!</span>
+          <span className="hero-woof hero-woof--two">Woof woof!</span>
+          {say !== null && <span className="hero-say">{say}</span>}
+          {isAsleep && !isFetching && say === null && (
+            <span className="hero-zzz">Zzz…</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CourierDog() {
+  return (
+    <div className="courier-dog" aria-hidden="true">
+      <RunningDogSvg className="courier-dog-svg" />
+      <img
+        className="courier-dog-sit"
+        src={goldenRetrieverSprite}
+        alt=""
+        width={110}
+        height={115}
+      />
+    </div>
+  );
+}
+
 function TransferBeacon({
   mode,
   path,
+  paused = false,
 }: {
   mode: "sending" | "receiving";
   path: string;
+  paused?: boolean;
 }) {
   return (
-    <div className={`beacon beacon--${mode}`} aria-live="polite">
+    <div
+      className={`beacon beacon--${mode}${paused ? " beacon--paused" : ""}`}
+      aria-live="polite"
+    >
       <p className="beacon-label">
         {mode === "sending" ? "Sending" : "Receiving"}: {path}
+        {paused && " (paused)"}
       </p>
       <div className="beacon-rail">
         <span className="beacon-node" />
         <span className="beacon-line" />
         <span className="beacon-node" />
-        <span className="beacon-packet beacon-packet--one" />
-        <span className="beacon-packet beacon-packet--two" />
-        <span className="beacon-packet beacon-packet--three" />
+        <CourierDog />
       </div>
     </div>
   );

@@ -136,11 +136,15 @@ export class SessionConnection {
       case "peer-joined":
         this.log("peer-joined");
         this.setState({ status: "connecting-webrtc" });
-        void this.sendOffer();
+        this.sendOffer().catch((error: unknown) =>
+          this.failWebrtcNegotiation("offer-failed", error),
+        );
         return;
 
       case "signal":
-        void this.handleSignal(message.payload);
+        this.handleSignal(message.payload).catch((error: unknown) =>
+          this.failWebrtcNegotiation("signal-handling-failed", error),
+        );
         return;
 
       case "peer-left":
@@ -180,6 +184,25 @@ export class SessionConnection {
     channel.addEventListener("close", () => {
       this.log("datachannel-close");
       this.setState({ status: "disconnected", dataChannel: null });
+    });
+  }
+
+  /**
+   * Async SDP/ICE handling used to run as fire-and-forget, so a failure
+   * (malformed SDP, addIceCandidate rejection, etc.) became an unhandled
+   * rejection and the UI sat on "Establishing peer-to-peer connection…"
+   * forever. Route failures into the error state so the user can retry.
+   */
+  private failWebrtcNegotiation(event: string, error: unknown): void {
+    this.log(event, {
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    if (this.state.status === "connected") return;
+    this.setState({
+      status: "error",
+      errorMessage:
+        "Could not establish the device-to-device connection. Please try again.",
     });
   }
 

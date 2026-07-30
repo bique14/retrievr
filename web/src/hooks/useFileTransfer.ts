@@ -88,6 +88,7 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     null,
   );
   const [isOutgoingPaused, setIsOutgoingPaused] = useState(false);
+  const [isIncomingPaused, setIsIncomingPaused] = useState(false);
   const [sendingTelemetry, setSendingTelemetry] =
     useState<TransferTelemetry | null>(null);
   const [receivingTelemetry, setReceivingTelemetry] =
@@ -113,6 +114,12 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
 
   useEffect(() => {
     if (!dataChannel) return;
+
+    // A fresh channel means a fresh session (e.g. the peer left and this
+    // side rejoined) — don't carry over a stale error like "Sender
+    // cancelled transfer." from the previous connection.
+    setTransferError(null);
+    setIsIncomingPaused(false);
 
     const receiver = new FileReceiver(dataChannel, {
       onOffer: setIncomingOffer,
@@ -161,6 +168,7 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
         setReceivingTelemetry(null);
         receivingStartedAtRef.current = null;
       },
+      onPauseChange: setIsIncomingPaused,
     });
     receiverRef.current = receiver;
 
@@ -274,11 +282,9 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
         const msg =
           error instanceof TransferCancelledError
             ? "Sender cancelled transfer."
-            : error instanceof TransferDeclinedError
-              ? "Receiver declined the transfer or cannot open a destination folder on this device/browser."
-              : error instanceof TransferDecisionTimeoutError
-                ? "Transfer offer expired — the receiver did not respond in time."
-                : "Sender encountered an error.";
+            : error instanceof TransferDecisionTimeoutError
+              ? "Transfer offer expired — the receiver did not respond in time."
+              : "Sender encountered an error.";
         dataChannel.send(
           JSON.stringify({ type: "transfer-error", message: msg }),
         );
@@ -300,10 +306,26 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     }
   }
 
+  /** Best-effort notification so the receiver's UI can mirror pause state. */
+  function notifyPauseState(paused: boolean): void {
+    if (dataChannel?.readyState !== "open") return;
+    try {
+      dataChannel.send(
+        JSON.stringify({
+          type: paused ? "transfer-paused" : "transfer-resumed",
+        }),
+      );
+    } catch {
+      // The channel may be closing mid-send; the receiver will find out
+      // via the channel's own close handling instead.
+    }
+  }
+
   function pauseOutgoing(): void {
     if (!sendingFile) return;
     outgoingControlsRef.current.paused = true;
     setIsOutgoingPaused(true);
+    notifyPauseState(true);
   }
 
   function resumeOutgoing(): void {
@@ -312,6 +334,7 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     for (const wake of outgoingControlsRef.current.pauseWaiters.splice(0)) {
       wake();
     }
+    notifyPauseState(false);
   }
 
   function cancelOutgoing(): void {
@@ -340,6 +363,7 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     sendingFile,
     outgoingOffer,
     isOutgoingPaused,
+    isIncomingPaused,
     sendingTelemetry,
     receivingTelemetry,
     pauseOutgoing,

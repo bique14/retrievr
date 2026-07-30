@@ -22,10 +22,12 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 16% 10%, #dff4ff 0%, transparent 35%),
-    radial-gradient(circle at 84% 86%, #dff9ee 0%, transparent 30%),
-    linear-gradient(180deg, #f8fdff 0%, #f5fbff 35%, #fafffd 100%);
+  background-color: #fdf5e7;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'%3E%3Cg fill='%23c98a3a' fill-opacity='0.075'%3E%3Cg transform='translate(38 42) rotate(-18)'%3E%3Cellipse cy='5' rx='8' ry='6.5'/%3E%3Cellipse cx='-9' cy='-4' rx='3.4' ry='4.6'/%3E%3Cellipse cx='-3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='9' cy='-4' rx='3.4' ry='4.6'/%3E%3C/g%3E%3Cg transform='translate(112 112) rotate(16)'%3E%3Cellipse cy='5' rx='8' ry='6.5'/%3E%3Cellipse cx='-9' cy='-4' rx='3.4' ry='4.6'/%3E%3Cellipse cx='-3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='9' cy='-4' rx='3.4' ry='4.6'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"),
+    radial-gradient(circle at 14% 6%, rgba(255, 211, 132, 0.5) 0%, transparent 40%),
+    radial-gradient(circle at 88% 92%, rgba(243, 176, 90, 0.36) 0%, transparent 38%),
+    linear-gradient(180deg, #fffaf0 0%, #fdf2e0 55%, #f9ecd5 100%);
 }
 
 p,

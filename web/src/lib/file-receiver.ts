@@ -26,6 +26,14 @@ import {
 } from "./transfer-protocol";
 import { logEvent } from "./diagnostics";
 
+/**
+ * Devices without `showDirectoryPicker` (iPhone/iPad and Android browsers)
+ * must buffer each incoming file entirely in memory before triggering a
+ * download, so batches beyond this size are refused up front rather than
+ * crashing the tab mid-transfer.
+ */
+const MAX_FALLBACK_BATCH_BYTES = 2 * 1024 * 1024 * 1024;
+
 export interface FileReceiveProgress {
   bytesReceived: number;
   totalBytes: number;
@@ -53,6 +61,8 @@ export interface FileReceiverCallbacks {
   onFileComplete(info: ReceivingFileInfo): void;
   onBatchComplete(): void;
   onError(message: string): void;
+  /** Sender paused or resumed streaming mid-transfer. */
+  onPauseChange?(paused: boolean): void;
 }
 
 export class FileReceiver {
@@ -87,6 +97,21 @@ export class FileReceiver {
 
     logEvent("receive", "accept-clicked");
     if (typeof window.showDirectoryPicker !== "function") {
+      if (offer.totalBytes > MAX_FALLBACK_BATCH_BYTES) {
+        logEvent("receive", "fallback-too-large", {
+          totalBytes: offer.totalBytes,
+        });
+        this.pendingOffer = null;
+        this.channel.send(
+          JSON.stringify({
+            type: "batch-decline",
+          } satisfies BatchDeclineMessage),
+        );
+        this.callbacks.onError(
+          "This device can only receive up to 2 GB per transfer. Try sending smaller batches, or receive on a desktop browser.",
+        );
+        return;
+      }
       this.pendingOffer = null;
       this.useDownloadFallback = true;
       this.fileCount = offer.fileCount;
@@ -129,9 +154,13 @@ export class FileReceiver {
     );
   }
 
-  /** Detaches from the channel; safe to call once the transfer is done. */
+  /** Detaches from the channel and releases any in-progress file/batch state. */
   dispose(): void {
     this.channel.removeEventListener("message", this.handleMessageEvent);
+    // Chain onto the write queue so an in-flight write finishes before the
+    // writable is closed; otherwise a mid-receive unmount (e.g. the data
+    // channel being replaced) leaks an open FileSystemWritableFileStream.
+    this.queue = this.queue.then(() => this.resetBatchState()).catch(() => {});
   }
 
   private readonly handleMessageEvent = (
@@ -279,25 +308,51 @@ export class FileReceiver {
       }
 
       case "transfer-complete": {
+        const completedFile = this.currentFile;
+        if (completedFile && this.bytesReceived !== completedFile.size) {
+          // The channel is ordered+reliable, so a mismatch means sender-side
+          // truncation or protocol corruption — never silently keep a
+          // partial file on disk.
+          logEvent("receive", "size-mismatch", {
+            relativePath: completedFile.relativePath,
+            expected: completedFile.size,
+            received: this.bytesReceived,
+          });
+          await this.resetBatchState();
+          this.callbacks.onError(
+            `"${completedFile.relativePath}" arrived incomplete (${this.bytesReceived} of ${completedFile.size} bytes). Ask the sender to try again.`,
+          );
+          return;
+        }
         if (this.useDownloadFallback) {
           this.downloadCurrentFile();
           this.downloadChunks = [];
         }
         await this.writable?.close();
         this.writable = null;
-        if (this.currentFile) this.callbacks.onFileComplete(this.currentFile);
+        if (completedFile) this.callbacks.onFileComplete(completedFile);
         return;
       }
 
       case "batch-complete": {
         await this.resetBatchState();
+        this.callbacks.onPauseChange?.(false);
         this.callbacks.onBatchComplete();
         return;
       }
 
       case "transfer-error":
         await this.resetBatchState();
+        this.callbacks.onPauseChange?.(false);
         this.callbacks.onError(message.message);
+        return;
+
+      case "transfer-paused":
+        this.callbacks.onPauseChange?.(true);
+        return;
+
+      case "transfer-resumed":
+        this.callbacks.onPauseChange?.(false);
         return;
 
       // Accept/decline are sent by receivers, not to them; a receiver only

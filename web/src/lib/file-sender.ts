@@ -109,16 +109,61 @@ export class TransferCancelledError extends Error {
   }
 }
 
-/** Resolves once the channel's buffered amount has drained back down. */
-function waitForBufferedAmountLow(channel: RTCDataChannel): Promise<void> {
-  if (channel.bufferedAmount <= LOW_WATER_MARK) return Promise.resolve();
+/** Thrown when the DataChannel closes mid-transfer (peer disconnected, network drop). */
+export class TransferConnectionLostError extends Error {
+  constructor() {
+    super("Connection to the other device was lost during the transfer.");
+    this.name = "TransferConnectionLostError";
+  }
+}
 
-  return new Promise((resolve) => {
-    channel.bufferedAmountLowThreshold = LOW_WATER_MARK;
-    channel.addEventListener("bufferedamountlow", function handleLow() {
+/**
+ * Resolves once the channel's buffered amount has drained back down.
+ *
+ * Also resolves if the channel closes or errors (the caller then notices the
+ * non-open state and aborts), and rejects on user cancellation — without
+ * these, a phone losing Wi-Fi or locking mid-transfer would leave the
+ * sender awaiting a `bufferedamountlow` event that never fires.
+ */
+function waitForBufferedAmountLow(
+  channel: RTCDataChannel,
+  controls?: TransferRuntimeControls,
+): Promise<void> {
+  if (channel.readyState !== "open" || channel.bufferedAmount <= LOW_WATER_MARK) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    function cleanup(): void {
+      window.clearInterval(poll);
       channel.removeEventListener("bufferedamountlow", handleLow);
+      channel.removeEventListener("close", handleClosed);
+      channel.removeEventListener("error", handleClosed);
+    }
+    function handleLow(): void {
+      cleanup();
       resolve();
-    });
+    }
+    function handleClosed(): void {
+      cleanup();
+      resolve();
+    }
+    // Poll as a safety net: on abrupt network loss (common on mobile) the
+    // close event can be delayed by many seconds, and cancellation must be
+    // honored even while blocked here.
+    const poll = window.setInterval(() => {
+      if (controls?.isCancelled()) {
+        cleanup();
+        reject(new TransferCancelledError());
+        return;
+      }
+      if (channel.readyState !== "open") handleClosed();
+    }, 250);
+
+    channel.bufferedAmountLowThreshold = LOW_WATER_MARK;
+    channel.addEventListener("bufferedamountlow", handleLow);
+    channel.addEventListener("close", handleClosed);
+    channel.addEventListener("error", handleClosed);
   });
 }
 
@@ -188,8 +233,10 @@ async function sendOneFile(
     if (controls) await controls.waitIfPaused();
 
     if (channel.bufferedAmount > HIGH_WATER_MARK) {
-      await waitForBufferedAmountLow(channel);
+      await waitForBufferedAmountLow(channel, controls);
     }
+
+    if (channel.readyState !== "open") throw new TransferConnectionLostError();
 
     channel.send(encodeChunkFrame(chunkIndex, payload));
     bytesSent += payload.length;

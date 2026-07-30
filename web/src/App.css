@@ -19,9 +19,11 @@
 
 #session {
   height: 100svh;
-  display: grid;
-  place-items: center;
-  padding: 36px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
   box-sizing: border-box;
   position: relative;
   isolation: isolate;
@@ -57,11 +59,12 @@
 
 .hero {
   width: min(760px, 100%);
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .hero-pill {
@@ -93,21 +96,466 @@
   max-width: 560px;
 }
 
-.hero-sprite-wrap {
-  margin: 6px 0 2px;
+/* ─── Hero playground: dog runs, jumps, sits, barks (16s loop) ── */
+
+.hero-stage {
+  position: relative;
+  width: min(560px, 96%);
+  height: clamp(96px, 18svh, 150px);
+  margin: 4px 0 2px;
+  overflow: hidden;
 }
 
-.hero-sprite {
-  display: block;
-  width: clamp(190px, 33vw, 280px);
-  height: auto;
-  filter: drop-shadow(0 10px 12px rgba(110, 67, 22, 0.24));
-  animation: pup-bob 2.9s ease-in-out infinite;
+.hero-stage::after {
+  /* ground line the dog runs along */
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 7px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(169, 101, 31, 0.3) 18%,
+    rgba(169, 101, 31, 0.3) 82%,
+    transparent 100%
+  );
+}
+
+.hero-dog {
+  position: absolute;
+  bottom: 8px;
+  left: 4%;
+  width: clamp(84px, 16svh, 116px);
+  aspect-ratio: 132 / 84;
+  animation: hero-roam 16s linear infinite;
+  will-change: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hero-dog-jump {
+  width: 100%;
+  height: 100%;
+  animation: hero-jump 16s linear infinite;
+}
+
+.hero-dog-flip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  animation: hero-flip 16s step-end infinite;
+}
+
+.hero-pose {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-pose--run {
+  animation: hero-pose-run 16s step-end infinite;
+}
+
+.hero-pose--run .hero-run-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: courier-bob 0.42s ease-in-out infinite;
+  filter: drop-shadow(0 3px 3px rgba(110, 67, 22, 0.28));
+}
+
+.hero-pose--sit {
+  object-fit: contain;
+  object-position: bottom center;
+  animation: hero-pose-sit 16s step-end infinite;
+  filter: drop-shadow(0 4px 5px rgba(110, 67, 22, 0.24));
+}
+
+.hero-woof {
+  position: absolute;
+  bottom: 92%;
+  left: 68%;
+  padding: 3px 9px;
+  border-radius: 10px 10px 10px 2px;
+  border: 1px solid rgba(173, 117, 39, 0.4);
+  background: rgba(255, 249, 238, 0.96);
+  color: var(--sea-600);
+  font-family: "Sora", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  transform-origin: 0 100%;
+}
+
+.hero-woof--one {
+  animation: hero-woof-one 16s ease-out infinite;
+}
+
+.hero-woof--two {
+  animation: hero-woof-two 16s ease-out infinite;
+}
+
+/* ─── Easter eggs ─── */
+
+/* Click reactions: the whole timeline pauses while the dog reacts. */
+.hero-stage--paused .hero-dog,
+.hero-stage--paused .hero-dog-jump,
+.hero-stage--paused .hero-dog-flip,
+.hero-stage--paused .hero-pose--run,
+.hero-stage--paused .hero-pose--sit {
+  animation-play-state: paused;
+}
+
+/* While paused, hide the timeline woof bubbles with visibility (NOT
+   display:none, which would reset their 16s animations to t=0 and
+   desync them from the paused-and-resumed roam timeline). */
+.hero-stage--paused .hero-woof {
+  animation-play-state: paused;
+  visibility: hidden;
+}
+
+/* Fetch/sleep reset the whole timeline via animation:none, so a hard
+   display:none is safe here — everything restarts together. */
+.hero-stage--fetch .hero-woof,
+.hero-stage--sleep .hero-woof {
+  display: none;
+}
+
+.hero-dog-react {
+  width: 100%;
+  height: 100%;
+}
+
+.hero-react--boop {
+  animation: hero-boop 0.45s ease-out 2;
+}
+
+.hero-react--zoomies {
+  animation: hero-zoomies 0.62s linear 3;
+}
+
+@keyframes hero-boop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  40% {
+    transform: translateY(-26%) rotate(-5deg);
+  }
+}
+
+/* Lift + shrink during the spin so the rotated dog stays inside the
+   overflow-hidden stage instead of clipping through the ground. */
+@keyframes hero-zoomies {
+  0% {
+    transform: translateY(0) scale(1) rotate(0turn);
+  }
+  12% {
+    transform: translateY(-22%) scale(0.82) rotate(0.12turn);
+  }
+  88% {
+    transform: translateY(-22%) scale(0.82) rotate(0.88turn);
+  }
+  100% {
+    transform: translateY(0) scale(1) rotate(1turn);
+  }
+}
+
+/* Speech bubble for reactions ("Woof!?", "Zoomies!!", "Got it!"). */
+.hero-say {
+  position: absolute;
+  bottom: 92%;
+  left: 68%;
+  padding: 3px 9px;
+  border-radius: 10px 10px 10px 2px;
+  border: 1px solid rgba(173, 117, 39, 0.4);
+  background: rgba(255, 249, 238, 0.96);
+  color: var(--sea-600);
+  font-family: "Sora", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transform-origin: 0 100%;
+  animation: hero-say-pop 0.22s ease-out;
+}
+
+@keyframes hero-say-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+/* Night mode (midnight–5 AM): the pup is asleep mid-stage. */
+.hero-stage--sleep .hero-dog {
+  left: calc(50% - clamp(84px, 16svh, 116px) / 2);
+  animation: none;
+}
+
+.hero-stage--sleep .hero-dog-jump {
+  animation: none;
+}
+
+.hero-stage--sleep .hero-dog-flip {
+  animation: none;
+  transform: scaleX(1);
+}
+
+.hero-stage--sleep .hero-pose--run {
+  animation: none;
+  opacity: 0;
+}
+
+.hero-stage--sleep .hero-pose--sit {
+  opacity: 1;
+  transform-origin: bottom center;
+  animation: hero-breathe 3.4s ease-in-out infinite;
+}
+
+@keyframes hero-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.955);
+  }
+}
+
+.hero-zzz {
+  position: absolute;
+  bottom: 86%;
+  left: 62%;
+  color: var(--sea-600);
+  font-family: "Sora", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 0.75;
+  animation: hero-zzz-float 3.4s ease-in-out infinite;
+}
+
+@keyframes hero-zzz-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateY(-6px);
+    opacity: 0.85;
+  }
+}
+
+/* Fetch mode: while files are dragged over the page the dog chases the
+   cursor (position + facing driven by --fetch-x / --fetch-dir from JS).
+   Declared after the sleep rules so a night-owl pup still wakes up to
+   play fetch. */
+.hero-stage--fetch .hero-dog {
+  left: var(--fetch-x, calc(50% - clamp(84px, 16svh, 116px) / 2));
+  animation: none;
+  transition: left 0.22s linear;
+}
+
+.hero-stage--fetch .hero-dog-jump {
+  animation: none;
+}
+
+.hero-stage--fetch .hero-dog-flip {
+  animation: none;
+  transform: scaleX(var(--fetch-dir, 1));
+  transition: transform 0.15s step-end;
+}
+
+.hero-stage--fetch .hero-pose--run {
+  animation: none;
+  opacity: 1;
+}
+
+.hero-stage--fetch .hero-pose--sit {
+  animation: none;
+  opacity: 0;
+}
+
+
+/* Timeline map (of 16s): 0-20% run right · 20-26% two hops · 26-46% run
+   left · 46-52% hop · 52-60% trot to center · 60-92% sit + barks ·
+   92-100% run back to start. */
+@keyframes hero-roam {
+  0% {
+    left: 4%;
+  }
+  20%,
+  26% {
+    left: calc(96% - clamp(84px, 16svh, 116px));
+  }
+  46%,
+  52% {
+    left: 4%;
+  }
+  60%,
+  92% {
+    left: calc(50% - clamp(84px, 16svh, 116px) / 2);
+  }
+  100% {
+    left: 4%;
+  }
+}
+
+@keyframes hero-jump {
+  0%,
+  20%,
+  26%,
+  46%,
+  52%,
+  100% {
+    transform: translateY(0);
+  }
+  21.5% {
+    transform: translateY(-30%);
+  }
+  23% {
+    transform: translateY(0);
+  }
+  24.5% {
+    transform: translateY(-20%);
+  }
+  47.5% {
+    transform: translateY(-30%);
+  }
+  49% {
+    transform: translateY(0);
+  }
+  50.5% {
+    transform: translateY(-20%);
+  }
+}
+
+@keyframes hero-flip {
+  0%,
+  26% {
+    transform: scaleX(1);
+  }
+  26.01%,
+  52% {
+    transform: scaleX(-1);
+  }
+  52.01%,
+  92% {
+    transform: scaleX(1);
+  }
+  92.01%,
+  100% {
+    transform: scaleX(-1);
+  }
+}
+
+@keyframes hero-pose-run {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  60.01%,
+  91.99% {
+    opacity: 0;
+  }
+  92%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes hero-pose-sit {
+  0%,
+  60% {
+    opacity: 0;
+  }
+  60.01%,
+  91.99% {
+    opacity: 1;
+  }
+  92%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes hero-woof-one {
+  0%,
+  66% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  68%,
+  73% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  76%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes hero-woof-two {
+  0%,
+  80% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  82%,
+  87% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  90%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-dog,
+  .hero-dog-jump,
+  .hero-dog-flip,
+  .hero-dog-react,
+  .hero-pose--run,
+  .hero-pose--run .hero-run-svg,
+  .hero-pose--sit,
+  .hero-stage--sleep .hero-pose--sit,
+  .hero-woof,
+  .hero-say,
+  .hero-zzz {
+    animation: none;
+  }
+
+  .hero-stage--fetch .hero-dog {
+    transition: none;
+  }
+
+  .hero-dog {
+    left: calc(50% - clamp(84px, 16svh, 116px) / 2);
+  }
+
+  .hero-pose--run {
+    opacity: 0;
+  }
+
+  .hero-pose--sit {
+    opacity: 1;
+  }
 }
 
 .surface {
   width: min(760px, 100%);
-  max-height: calc(100svh - 120px);
+  flex: 0 1 auto;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: linear-gradient(180deg, rgba(255, 251, 244, 0.98) 0%, rgba(255, 245, 230, 0.94) 100%);
@@ -118,7 +566,27 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: visible;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(169, 101, 31, 0.4) transparent;
+}
+
+.surface::-webkit-scrollbar {
+  width: 8px;
+}
+
+.surface::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.surface::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(169, 101, 31, 0.32);
+}
+
+.surface::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 101, 31, 0.5);
 }
 
 .status-card {
@@ -165,45 +633,55 @@
 
 .network-tip {
   margin: 0;
-  padding: 11px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(165, 109, 32, 0.34);
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px dashed rgba(178, 118, 40, 0.42);
   background: linear-gradient(
     135deg,
-    rgba(255, 246, 231, 0.95) 0%,
-    rgba(252, 234, 196, 0.9) 100%
+    rgba(255, 248, 235, 0.96) 0%,
+    rgba(253, 238, 211, 0.92) 100%
   );
-  box-shadow:
-    inset 4px 0 0 rgba(177, 114, 28, 0.82),
-    0 5px 14px rgba(102, 63, 18, 0.1);
-  color: var(--ink-900);
-  font-size: 0.92rem;
-  font-weight: 600;
-  text-align: left;
+  box-shadow: 0 5px 14px rgba(102, 63, 18, 0.08);
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 10px;
-  align-items: start;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
 }
 
-.network-tip::before {
-  content: "!";
-  width: 18px;
-  height: 18px;
+.network-tip-icon {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: #fff;
-  background: linear-gradient(180deg, #d4953a 0%, #aa6520 100%);
-  box-shadow: 0 3px 8px rgba(125, 74, 19, 0.3);
+  font-size: 1.05rem;
+  background: linear-gradient(180deg, #ffe4b0 0%, #f3c377 100%);
+  border: 1px solid rgba(173, 114, 36, 0.32);
+  box-shadow: 0 3px 8px rgba(125, 74, 19, 0.16);
+}
+
+.network-tip-text {
+  display: grid;
+  gap: 2px;
+  color: var(--ink-700);
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.network-tip-text strong {
+  font-family: "Sora", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sea-600);
 }
 
 .primary-cta,
 .join-form button,
 .upload-trigger,
-.upload-menu button,
 .share button,
 .offer-actions button {
   font: inherit;
@@ -239,12 +717,17 @@
   justify-content: center;
 }
 
-.upload-menu button,
 .share button {
   background: var(--sand-100);
   color: var(--ink-900);
   border: 1px solid var(--sand-300);
   box-shadow: none;
+}
+
+.share-row button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Accept/decline need to look unmistakably different from each other.
@@ -271,7 +754,6 @@
 .join-form button:hover,
 .upload-trigger:hover,
 .offer-actions button:hover,
-.upload-menu button:hover,
 .share button:hover {
   transform: translateY(-1px);
   filter: saturate(1.04);
@@ -280,7 +762,6 @@
 .primary-cta:focus-visible,
 .join-form button:focus-visible,
 .upload-trigger:focus-visible,
-.upload-menu button:focus-visible,
 .share button:focus-visible,
 .offer-actions button:focus-visible,
 .join-form input:focus-visible {
@@ -291,7 +772,6 @@
 .primary-cta:disabled,
 .join-form button:disabled,
 .upload-trigger:disabled,
-.upload-menu button:disabled,
 .share button:disabled,
 .offer-actions button:disabled {
   opacity: 0.6;
@@ -322,6 +802,13 @@
   background: #fff8ef;
   color: var(--ink-500);
   font-size: 0.84rem;
+}
+
+.onboarding-divider span::before {
+  content: "🦴";
+  margin-right: 6px;
+  font-size: 0.82em;
+  opacity: 0.8;
 }
 
 .join-form {
@@ -425,13 +912,14 @@
 }
 
 .share-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   gap: 8px;
 }
 
 .share code {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 10px 12px;
   border: 1px dashed rgba(156, 97, 25, 0.42);
@@ -447,63 +935,114 @@
   white-space: nowrap;
 }
 
-.share-qr {
+.qr-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: grid;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 4px;
+  place-items: center;
+  padding: 20px;
+  background: rgba(58, 36, 14, 0.45);
+  backdrop-filter: blur(3px);
+  animation: qr-overlay-in 0.18s ease-out;
 }
 
-.share-qr img {
-  width: 170px;
-  height: 170px;
-  border-radius: 12px;
+.qr-modal {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(320px, 100%);
+  padding: 22px 20px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(163, 104, 27, 0.28);
+  background: var(--card-bg, #fffdf7);
+  box-shadow: 0 22px 54px rgba(74, 43, 10, 0.32);
+  animation: qr-modal-in 0.2s ease-out;
+}
+
+.qr-modal img {
+  width: 220px;
+  height: 220px;
+  border-radius: 14px;
   border: 1px solid rgba(156, 98, 26, 0.34);
   background: #fff;
-  padding: 6px;
+  padding: 8px;
 }
 
-.share-qr-fallback {
+.qr-modal code {
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed rgba(156, 97, 25, 0.42);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #674022;
+  font-family: "Sora", sans-serif;
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qr-modal-hint {
   margin: 0;
   font-size: 0.86rem;
   color: var(--ink-700);
+  text-align: center;
+}
+
+.qr-modal > button {
+  font: inherit;
+  padding: 10px 26px;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--sand-100);
+  color: var(--ink-900);
+  border: 1px solid var(--sand-300);
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.qr-modal > button:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.04);
+}
+
+.qr-modal > button:focus-visible {
+  outline: 2px solid rgba(170, 112, 35, 0.56);
+  outline-offset: 2px;
+}
+
+@keyframes qr-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes qr-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .transfer {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
 .upload-panel {
   display: grid;
   justify-content: start;
-}
-
-.upload-menu-wrap {
-  position: relative;
-}
-
-.upload-menu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 170px;
-  padding: 7px;
-  border-radius: 14px;
-  border: 1px solid rgba(162, 103, 30, 0.24);
-  background: var(--surface);
-  box-shadow: 0 14px 28px rgba(96, 59, 19, 0.14);
-  display: grid;
-  gap: 6px;
-  animation: menu-in 0.18s ease-out;
-}
-
-.upload-menu button {
-  width: 100%;
-  text-align: left;
-  padding: 9px 10px;
 }
 
 .hidden-picker {
@@ -535,11 +1074,13 @@
 
 .beacon-rail {
   position: relative;
-  height: 30px;
+  height: 46px;
   display: grid;
   grid-template-columns: auto 1fr auto;
-  align-items: center;
+  align-items: end;
+  padding-bottom: 4px;
   gap: 8px;
+  overflow: hidden;
 }
 
 .beacon-node {
@@ -556,31 +1097,115 @@
   background: linear-gradient(90deg, rgba(195, 126, 36, 0.2) 0%, rgba(157, 95, 21, 0.3) 100%);
 }
 
-.beacon-packet {
+.courier-dog {
   position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff 0%, #fff0d8 35%, #b16a22 100%);
-  box-shadow: 0 0 10px rgba(162, 102, 28, 0.35);
+  bottom: 6px;
+  left: 0;
+  width: 62px;
+  height: 40px;
+  animation: courier-run 3.2s linear infinite;
+  will-change: left;
 }
 
-.beacon-packet--one {
-  animation: packet-move 1.9s linear infinite;
+.courier-dog-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: courier-bob 0.42s ease-in-out infinite;
+  filter: drop-shadow(0 3px 3px rgba(110, 67, 22, 0.28));
+  transition: opacity 0.25s ease;
 }
 
-.beacon-packet--two {
-  animation: packet-move 1.9s linear infinite 0.55s;
+/* Sitting pose shown while the transfer is paused. */
+.courier-dog-sit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  opacity: 0;
+  filter: drop-shadow(0 3px 3px rgba(110, 67, 22, 0.24));
+  transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 
-.beacon-packet--three {
-  animation: packet-move 1.9s linear infinite 1.05s;
+/* Paused: the dog stops where it is, sits down, and waits (breathing
+   gently) until the transfer resumes. */
+.beacon--paused .courier-dog {
+  animation-play-state: paused;
 }
 
-.beacon--receiving .beacon-packet {
-  animation-name: packet-move-reverse;
+.beacon--paused .courier-dog-svg {
+  opacity: 0;
+}
+
+.beacon--paused .courier-dog-svg .dog-leg,
+.beacon--paused .courier-dog-svg .dog-tail,
+.beacon--paused .courier-dog-svg .dog-parcel {
+  animation-play-state: paused;
+}
+
+.beacon--paused .courier-dog-sit {
+  opacity: 1;
+  transform-origin: bottom center;
+  animation: hero-breathe 3.4s ease-in-out infinite;
+}
+
+.beacon--receiving .courier-dog {
+  animation-name: courier-run-reverse;
+}
+
+.beacon--receiving .courier-dog-svg {
+  transform: scaleX(-1);
+}
+
+.dog-leg {
+  transform-box: fill-box;
+  transform-origin: 50% 8%;
+}
+
+.dog-leg--front-near {
+  animation: dog-gallop-front 0.42s ease-in-out infinite;
+}
+
+.dog-leg--front-far {
+  animation: dog-gallop-front 0.42s ease-in-out infinite 0.21s;
+}
+
+.dog-leg--back-near {
+  animation: dog-gallop-back 0.42s ease-in-out infinite;
+}
+
+.dog-leg--back-far {
+  animation: dog-gallop-back 0.42s ease-in-out infinite 0.21s;
+}
+
+.dog-tail {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+  animation: dog-tail-wag 0.42s ease-in-out infinite;
+}
+
+.dog-parcel {
+  transform-box: fill-box;
+  transform-origin: 10% 20%;
+  animation: dog-parcel-sway 0.42s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .courier-dog,
+  .courier-dog-svg,
+  .courier-dog-sit,
+  .dog-leg,
+  .dog-tail,
+  .dog-parcel {
+    animation: none;
+  }
+
+  .courier-dog {
+    left: calc(50% - 31px);
+  }
 }
 
 .pending-transfer {
@@ -714,11 +1339,33 @@
 .history {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 6px 0 0;
   display: grid;
   gap: 6px;
-  max-height: 230px;
+  align-content: start;
+  flex: 0 1 auto;
+  min-height: 88px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(169, 101, 31, 0.4) transparent;
+}
+
+.history::-webkit-scrollbar {
+  width: 8px;
+}
+
+.history::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(169, 101, 31, 0.32);
+}
+
+.history::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 101, 31, 0.5);
 }
 
 .offer-modal-backdrop {
@@ -817,52 +1464,85 @@
   white-space: nowrap;
 }
 
-@keyframes packet-move {
+@keyframes courier-run {
   0% {
-    left: 6%;
-    opacity: 0;
-    transform: scale(0.75);
-  }
-  12% {
-    opacity: 1;
-  }
-  88% {
-    opacity: 1;
+    left: -62px;
   }
   100% {
-    left: 89%;
-    opacity: 0;
-    transform: scale(1);
+    left: 100%;
   }
 }
 
-@keyframes packet-move-reverse {
+@keyframes courier-run-reverse {
   0% {
-    left: 89%;
-    opacity: 0;
-    transform: scale(0.75);
-  }
-  12% {
-    opacity: 1;
-  }
-  88% {
-    opacity: 1;
+    left: 100%;
   }
   100% {
-    left: 6%;
-    opacity: 0;
-    transform: scale(1);
+    left: -62px;
   }
 }
 
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
+@keyframes courier-bob {
+  0%,
+  100% {
     transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+.beacon--receiving .courier-dog-svg {
+  animation-name: courier-bob-flipped;
+}
+
+@keyframes courier-bob-flipped {
+  0%,
+  100% {
+    transform: scaleX(-1) translateY(0);
+  }
+  50% {
+    transform: scaleX(-1) translateY(-2.5px);
+  }
+}
+
+@keyframes dog-gallop-front {
+  0%,
+  100% {
+    transform: rotate(24deg);
+  }
+  50% {
+    transform: rotate(-26deg);
+  }
+}
+
+@keyframes dog-gallop-back {
+  0%,
+  100% {
+    transform: rotate(-24deg);
+  }
+  50% {
+    transform: rotate(26deg);
+  }
+}
+
+@keyframes dog-tail-wag {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes dog-parcel-sway {
+  0%,
+  100% {
+    transform: rotate(1.5deg);
+  }
+  50% {
+    transform: rotate(-1.5deg);
   }
 }
 
@@ -877,31 +1557,17 @@
   }
 }
 
-@keyframes pup-bob {
-  0% {
-    transform: translateY(0) rotate(-1deg);
-  }
-  50% {
-    transform: translateY(-4px) rotate(1deg);
-  }
-  100% {
-    transform: translateY(0) rotate(-1deg);
-  }
-}
-
 @media (max-width: 760px) {
   #session {
-    padding: 24px 12px;
+    padding: 16px 12px;
   }
 
   .surface {
     border-radius: 18px;
     padding: 14px;
-    max-height: calc(100svh - 82px);
   }
 
   .join-form-row,
-  .share-row,
   .offer-actions {
     grid-template-columns: 1fr;
   }
@@ -910,14 +1576,29 @@
     width: 100%;
   }
 
-  .upload-menu {
-    left: 0;
-    right: 0;
-    min-width: 0;
-  }
-
   .scan-actions button {
     flex: 1 1 auto;
+  }
+}
+
+@media (max-height: 720px) {
+  .hero {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .subtitle {
+    display: none;
+  }
+}
+
+@media (max-height: 560px) {
+  .hero-stage {
+    display: none;
+  }
+
+  .hero-pill {
+    display: none;
   }
 }
 
@@ -1022,11 +1703,13 @@
 }
 
 [data-theme="dark"] body {
-  background: #130c07;
+  background-color: #130c07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'%3E%3Cg fill='%23e0a04f' fill-opacity='0.05'%3E%3Cg transform='translate(38 42) rotate(-18)'%3E%3Cellipse cy='5' rx='8' ry='6.5'/%3E%3Cellipse cx='-9' cy='-4' rx='3.4' ry='4.6'/%3E%3Cellipse cx='-3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='9' cy='-4' rx='3.4' ry='4.6'/%3E%3C/g%3E%3Cg transform='translate(112 112) rotate(16)'%3E%3Cellipse cy='5' rx='8' ry='6.5'/%3E%3Cellipse cx='-9' cy='-4' rx='3.4' ry='4.6'/%3E%3Cellipse cx='-3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='3.2' cy='-8' rx='3.4' ry='4.6'/%3E%3Cellipse cx='9' cy='-4' rx='3.4' ry='4.6'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] #session {
-  background: #130c07;
+  /* Transparent so the body's paw-print pattern shows through. */
+  background: transparent;
 }
 
 [data-theme="dark"] #session::before {
@@ -1042,8 +1725,30 @@
   border-color: rgba(213, 151, 70, 0.34);
 }
 
-[data-theme="dark"] .hero-sprite {
-  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.45));
+[data-theme="dark"] .hero-pose--run .hero-run-svg,
+[data-theme="dark"] .hero-pose--sit {
+  filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.5));
+}
+
+[data-theme="dark"] .hero-stage::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(224, 160, 79, 0.34) 18%,
+    rgba(224, 160, 79, 0.34) 82%,
+    transparent 100%
+  );
+}
+
+[data-theme="dark"] .hero-woof,
+[data-theme="dark"] .hero-say {
+  background: rgba(61, 41, 22, 0.96);
+  border-color: rgba(224, 160, 79, 0.42);
+  color: #f0c88a;
+}
+
+[data-theme="dark"] .hero-zzz {
+  color: #f0c88a;
 }
 
 [data-theme="dark"] .surface {
@@ -1055,6 +1760,21 @@
   box-shadow:
     0 20px 52px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  scrollbar-color: rgba(224, 160, 79, 0.42) transparent;
+}
+
+[data-theme="dark"] .surface::-webkit-scrollbar-thumb,
+[data-theme="dark"] .history::-webkit-scrollbar-thumb {
+  background: rgba(224, 160, 79, 0.34);
+}
+
+[data-theme="dark"] .surface::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] .history::-webkit-scrollbar-thumb:hover {
+  background: rgba(224, 160, 79, 0.52);
+}
+
+[data-theme="dark"] .history {
+  scrollbar-color: rgba(224, 160, 79, 0.42) transparent;
 }
 
 [data-theme="dark"] .status-card {
@@ -1068,15 +1788,27 @@
     rgba(62, 42, 24, 0.92) 0%,
     rgba(45, 31, 18, 0.9) 100%
   );
-  border-color: rgba(216, 152, 73, 0.36);
-  box-shadow:
-    inset 4px 0 0 rgba(233, 170, 84, 0.86),
-    0 7px 16px rgba(0, 0, 0, 0.32);
+  border-color: rgba(216, 152, 73, 0.4);
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.32);
 }
 
-[data-theme="dark"] .network-tip::before {
-  color: #372310;
-  background: linear-gradient(180deg, #f2c581 0%, #df9e4a 100%);
+[data-theme="dark"] .network-tip-icon {
+  background: linear-gradient(180deg, #6b4820 0%, #4f3319 100%);
+  border-color: rgba(224, 160, 79, 0.4);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .network-tip-text {
+  color: #e8cba3;
+}
+
+[data-theme="dark"] .network-tip-text strong {
+  color: #f0c88a;
+}
+
+[data-theme="dark"] .onboarding-divider span {
+  background: #3a2817;
+  color: #d8b586;
 }
 
 [data-theme="dark"] .share {
@@ -1093,9 +1825,24 @@
   border-color: rgba(211, 147, 66, 0.36);
 }
 
-[data-theme="dark"] .share-qr img {
+[data-theme="dark"] .qr-modal {
+  background: #2c1e10;
+  border-color: rgba(211, 147, 66, 0.36);
+}
+
+[data-theme="dark"] .qr-modal img {
   background: #fff;
   border-color: rgba(211, 147, 66, 0.36);
+}
+
+[data-theme="dark"] .qr-modal code {
+  background: rgba(0, 0, 0, 0.35);
+  color: #f6cf98;
+  border-color: rgba(211, 147, 66, 0.36);
+}
+
+[data-theme="dark"] .qr-modal-hint {
+  color: #d8b586;
 }
 
 [data-theme="dark"] .scan-panel {
@@ -1133,9 +1880,9 @@
   border-color: rgba(210, 146, 65, 0.28);
 }
 
-[data-theme="dark"] .upload-menu {
-  background: rgba(43, 30, 18, 0.98);
-  border-color: rgba(211, 147, 66, 0.28);
+[data-theme="dark"] .courier-dog-svg,
+[data-theme="dark"] .courier-dog-sit {
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.5));
 }
 
 [data-theme="dark"] .offer-modal {

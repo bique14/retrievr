@@ -22,6 +22,15 @@ function candidateType(candidate: string): string {
 
 export class WebrtcConnection {
   private readonly peer: RTCPeerConnection;
+  private remoteDescriptionSet = false;
+  /**
+   * ICE candidates can arrive over signaling before `setRemoteDescription`
+   * has completed (common when the other peer is a phone whose SDP answer
+   * is slower than its candidate trickle). Calling `addIceCandidate` in
+   * that window throws and silently loses the candidate, so they are
+   * queued here and flushed once the remote description is in place.
+   */
+  private readonly pendingRemoteCandidates: IceCandidateData[] = [];
 
   private log(event: string, details: Record<string, unknown> = {}): void {
     // Kept as plain console output (no UI surface) so it's cheap and always
@@ -84,6 +93,7 @@ export class WebrtcConnection {
 
   async createAnswer(remoteOffer: SdpDescription): Promise<SdpDescription> {
     await this.peer.setRemoteDescription(remoteOffer);
+    await this.drainPendingCandidates();
     const answer = await this.peer.createAnswer();
     await this.peer.setLocalDescription(answer);
     return { type: "answer", sdp: answer.sdp ?? "" };
@@ -91,10 +101,29 @@ export class WebrtcConnection {
 
   async acceptAnswer(remoteAnswer: SdpDescription): Promise<void> {
     await this.peer.setRemoteDescription(remoteAnswer);
+    await this.drainPendingCandidates();
   }
 
   async addRemoteIceCandidate(candidate: IceCandidateData): Promise<void> {
+    if (!this.remoteDescriptionSet) {
+      this.pendingRemoteCandidates.push(candidate);
+      this.log("ice-candidate-queued", {
+        queued: this.pendingRemoteCandidates.length,
+      });
+      return;
+    }
     await this.peer.addIceCandidate(candidate);
+  }
+
+  private async drainPendingCandidates(): Promise<void> {
+    this.remoteDescriptionSet = true;
+    const queued = this.pendingRemoteCandidates.splice(0);
+    if (queued.length > 0) {
+      this.log("ice-candidate-queue-drain", { count: queued.length });
+    }
+    for (const candidate of queued) {
+      await this.peer.addIceCandidate(candidate);
+    }
   }
 
   close(): void {

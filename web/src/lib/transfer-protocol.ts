@@ -85,6 +85,15 @@ export interface TransferErrorMessage {
   message: string;
 }
 
+/** Sender paused/resumed streaming; lets the receiver mirror the paused state in its UI. */
+export interface TransferPausedMessage {
+  type: "transfer-paused";
+}
+
+export interface TransferResumedMessage {
+  type: "transfer-resumed";
+}
+
 export type TransferControlMessage =
   | BatchInfoMessage
   | BatchAcceptMessage
@@ -92,7 +101,9 @@ export type TransferControlMessage =
   | BatchCompleteMessage
   | FileInfoMessage
   | TransferCompleteMessage
-  | TransferErrorMessage;
+  | TransferErrorMessage
+  | TransferPausedMessage
+  | TransferResumedMessage;
 
 /** Prepends a chunk index header to a payload, producing a single binary frame. */
 export function encodeChunkFrame(
@@ -180,6 +191,10 @@ export function parseControlMessage(
       return typeof value.message === "string"
         ? { type: "transfer-error", message: value.message }
         : null;
+    case "transfer-paused":
+      return { type: "transfer-paused" };
+    case "transfer-resumed":
+      return { type: "transfer-resumed" };
     default:
       return null;
   }
