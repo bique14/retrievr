@@ -12,6 +12,7 @@ import {
   type FormEvent,
 } from "react";
 import QRCode from "qrcode";
+import goldenRetrieverSprite from "./assets/golden-retriever-sprite.svg";
 import { useFileTransfer } from "./hooks/useFileTransfer";
 import { useQrScanner } from "./hooks/useQrScanner";
 import { useScreenWakeLock } from "./hooks/useScreenWakeLock";
@@ -102,9 +103,10 @@ function App() {
   // Dark mode — persisted to localStorage
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try {
-      return localStorage.getItem("retrievr-theme") === "dark"
-        ? "dark"
-        : "light";
+      const savedTheme =
+        localStorage.getItem("goodboyexpress-theme") ??
+        localStorage.getItem("retrievr-theme");
+      return savedTheme === "dark" ? "dark" : "light";
     } catch {
       return "light";
     }
@@ -117,6 +119,9 @@ function App() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [scanPanelOpen, setScanPanelOpen] = useState(false);
   const [scanJoinPending, setScanJoinPending] = useState(false);
+  const [scanJoinCandidateId, setScanJoinCandidateId] = useState<string | null>(
+    null,
+  );
   const scanDedupRef = useRef<{
     sessionId: string;
     timestampMs: number;
@@ -169,13 +174,11 @@ function App() {
       scanDedupRef.current = { sessionId: scannedSessionId, timestampMs: now };
       logEvent("ui", "qr-scan-success", { sessionId: scannedSessionId });
 
-      setScanJoinPending(true);
       stopScan();
       setScanPanelOpen(false);
       setJoinInput(scannedSessionId);
-      setJoinedSessionId(scannedSessionId);
-      showToast("QR scanned. Connecting...");
-      joinSession(scannedSessionId);
+      setScanJoinCandidateId(scannedSessionId);
+      showToast("QR scanned. Confirm to join this session.");
     },
   });
 
@@ -202,7 +205,7 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
-      localStorage.setItem("retrievr-theme", theme);
+      localStorage.setItem("goodboyexpress-theme", theme);
     } catch {
       // storage may be unavailable in private-browsing contexts
     }
@@ -230,6 +233,11 @@ function App() {
     if (status === "idle" || status === "connected" || status === "error") {
       setScanJoinPending(false);
     }
+  }, [status]);
+
+  useEffect(() => {
+    if (status === "idle") return;
+    setScanJoinCandidateId(null);
   }, [status]);
 
   useEffect(() => {
@@ -412,7 +420,7 @@ function App() {
     });
 
     const originalTitle = document.title;
-    const alertTitle = "Incoming transfer - retrievr";
+    const alertTitle = "Incoming transfer - GoodBoyExpress";
     let titleTimer: number | null = null;
 
     if (document.hidden) {
@@ -458,6 +466,33 @@ function App() {
     logEvent("ui", "qr-scan-cancel");
     stopScan();
     setScanPanelOpen(false);
+  }
+
+  function cancelScanJoinCandidate(): void {
+    if (!scanJoinCandidateId) return;
+    logEvent("ui", "qr-scan-confirm-cancel", {
+      sessionId: scanJoinCandidateId,
+    });
+    scanDedupRef.current = null;
+    setScanJoinCandidateId(null);
+  }
+
+  function confirmScanJoinCandidate(): void {
+    if (!scanJoinCandidateId) return;
+    if (status !== "idle") {
+      showToast("Open QR scanner only when no active connection is running.");
+      setScanJoinCandidateId(null);
+      return;
+    }
+
+    logEvent("ui", "qr-scan-confirm-join", {
+      sessionId: scanJoinCandidateId,
+    });
+    setScanJoinPending(true);
+    setJoinedSessionId(scanJoinCandidateId);
+    setScanJoinCandidateId(null);
+    showToast("QR scanned. Connecting...");
+    joinSession(scanJoinCandidateId);
   }
 
   function handleCreateSession(): void {
@@ -529,10 +564,19 @@ function App() {
       </button>
       <section className="hero">
         <span className="hero-pill">Peer-to-peer transfer</span>
-        <h1>retrievr</h1>
+        <h1>GoodBoyExpress</h1>
         <p className="subtitle">
           Fast browser-to-browser file delivery with zero cloud upload.
         </p>
+        <figure className="hero-sprite-wrap" aria-hidden="true">
+          <img
+            className="hero-sprite"
+            src={goldenRetrieverSprite}
+            alt=""
+            width={280}
+            height={192}
+          />
+        </figure>
       </section>
 
       <section className="surface">
@@ -873,6 +917,39 @@ function App() {
                 onClick={acceptIncoming}
               >
                 Accept
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {scanJoinCandidateId && (
+        <div className="offer-modal-backdrop" role="presentation">
+          <section
+            className="offer-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scan-join-confirm-title"
+          >
+            <p className="offer-modal-kicker">QR scan found a session</p>
+            <h2 id="scan-join-confirm-title">Join this session?</h2>
+            <p>
+              Session ID: <code>{scanJoinCandidateId}</code>
+            </p>
+            <div className="offer-actions offer-actions--modal">
+              <button
+                type="button"
+                className="btn-decline"
+                onClick={cancelScanJoinCandidate}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-accept"
+                onClick={confirmScanJoinCandidate}
+              >
+                Join
               </button>
             </div>
           </section>

@@ -4,6 +4,21 @@ interface UseQrScannerOptions {
   onDecode(text: string): void;
 }
 
+async function waitForVideoElement(
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  attempts = 45,
+  delayMs = 50,
+): Promise<HTMLVideoElement | null> {
+  for (let index = 0; index < attempts; index += 1) {
+    const video = videoRef.current;
+    if (video) return video;
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
+  }
+  return videoRef.current;
+}
+
 export function useQrScanner({ onDecode }: UseQrScannerOptions) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<{
@@ -37,7 +52,7 @@ export function useQrScanner({ onDecode }: UseQrScannerOptions) {
       return false;
     }
 
-    const video = videoRef.current;
+    const video = await waitForVideoElement(videoRef);
     if (!video) {
       setErrorMessage("Scanner is not ready yet. Try again.");
       return false;

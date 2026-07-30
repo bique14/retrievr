@@ -15,7 +15,7 @@ import { logEvent } from "./diagnostics";
 
 const SIGNALING_URL =
   import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8787";
-const DATA_CHANNEL_LABEL = "retrievr-transfer";
+const DATA_CHANNEL_LABEL = "goodboyexpress-transfer";
 
 export type ConnectionStatus =
   | "idle"

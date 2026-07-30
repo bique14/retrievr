@@ -12,7 +12,7 @@ export function logEvent(
 ): void {
   const elapsedMs = Math.round(performance.now());
   const wallClockMs = Date.now();
-  console.info(`[retrievr:${scope}] +${elapsedMs}ms ${event}`, {
+  console.info(`[goodboyexpress:${scope}] +${elapsedMs}ms ${event}`, {
     wallClockMs,
     wallClockIso: new Date(wallClockMs).toISOString(),
     ...details,

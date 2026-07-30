@@ -85,9 +85,12 @@ const server = Bun.serve<SocketData>({
     if (server.upgrade(request, { data: { sessionId: null, role: null, ip } }))
       return;
     logWarn("http-upgrade-failed", { ip, url: request.url });
-    return new Response("retrievr signaling server: WebSocket endpoint only", {
-      status: 400,
-    });
+    return new Response(
+      "GoodBoyExpress signaling server: WebSocket endpoint only",
+      {
+        status: 400,
+      },
+    );
   },
 
   websocket: {
