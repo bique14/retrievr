@@ -17,6 +17,7 @@ import {
   type BatchSendItem,
   type FileSendProgress,
   TransferCancelledError,
+  TransferDeclinedError,
   TransferDecisionTimeoutError,
 } from "../lib/file-sender";
 import { logEvent } from "../lib/diagnostics";
@@ -261,14 +262,23 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
         errorName: error instanceof Error ? error.name : typeof error,
       });
       // Notify the receiver so it can clear its pending UI (accept/decline
-      // popup or any in-progress receive panel) for ANY sender-side failure.
-      if (dataChannel.readyState === "open") {
+      // popup or any in-progress receive panel) for sender-side failures that
+      // the receiver would not already know about locally. Do not echo a
+      // decline back to the receiver, or it overwrites the receiver's own
+      // more accurate local error (for example, unsupported folder picker on
+      // iPhone/iPad browsers).
+      if (
+        dataChannel.readyState === "open" &&
+        !(error instanceof TransferDeclinedError)
+      ) {
         const msg =
           error instanceof TransferCancelledError
             ? "Sender cancelled transfer."
-            : error instanceof TransferDecisionTimeoutError
-              ? "Transfer offer expired — the receiver did not respond in time."
-              : "Sender encountered an error.";
+            : error instanceof TransferDeclinedError
+              ? "Receiver declined the transfer or cannot open a destination folder on this device/browser."
+              : error instanceof TransferDecisionTimeoutError
+                ? "Transfer offer expired — the receiver did not respond in time."
+                : "Sender encountered an error.";
         dataChannel.send(
           JSON.stringify({ type: "transfer-error", message: msg }),
         );
@@ -311,6 +321,10 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     }
   }
 
+  function clearTransferError(): void {
+    setTransferError(null);
+  }
+
   function acceptIncoming(): void {
     setIncomingOffer(null);
     void receiverRef.current?.accept();
@@ -331,6 +345,7 @@ export function useFileTransfer(dataChannel: RTCDataChannel | null) {
     pauseOutgoing,
     resumeOutgoing,
     cancelOutgoing,
+    clearTransferError,
     incomingOffer,
     acceptIncoming,
     declineIncoming,

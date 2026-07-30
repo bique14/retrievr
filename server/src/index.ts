@@ -75,12 +75,11 @@ const server = Bun.serve<SocketData>({
   port: PORT,
 
   fetch(request, server) {
-    if(new URL(request.url).pathname === '/healthz') {
-      return new Response(JSON.stringify({ status: "ok"}), {
-        headers: { "content-type": "application/json"}
-      })
+    if (new URL(request.url).pathname === "/health") {
+      return new Response(JSON.stringify({ status: "ok" }), {
+        headers: { "content-type": "application/json" },
+      });
     }
-
     const ip = server.requestIP(request)?.address ?? "unknown";
     logInfo("http-upgrade-attempt", { ip, url: request.url });
     if (server.upgrade(request, { data: { sessionId: null, role: null, ip } }))

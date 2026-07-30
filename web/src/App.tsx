@@ -4,13 +4,16 @@
  * history of what has been sent and received.
  */
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
 } from "react";
+import QRCode from "qrcode";
 import { useFileTransfer } from "./hooks/useFileTransfer";
+import { useQrScanner } from "./hooks/useQrScanner";
 import { useScreenWakeLock } from "./hooks/useScreenWakeLock";
 import { useSessionConnection } from "./hooks/useSessionConnection";
 import type { BatchSendItem } from "./lib/file-sender";
@@ -29,11 +32,18 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
   error: "Something went wrong",
 };
 
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
 function toBatchItems(files: FileList): BatchSendItem[] {
   return Array.from(files).map((file) => ({
     file,
     relativePath: file.webkitRelativePath || file.name,
   }));
+}
+
+function normalizeScannedSessionId(raw: string): string | null {
+  const trimmed = raw.trim();
+  return SESSION_ID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
 function App() {
@@ -57,6 +67,7 @@ function App() {
     pauseOutgoing,
     resumeOutgoing,
     cancelOutgoing,
+    clearTransferError,
     incomingOffer,
     acceptIncoming,
     declineIncoming,
@@ -70,8 +81,8 @@ function App() {
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const uploadMenuRef = useRef<HTMLDivElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const pickerTimeoutRef = useRef<number | null>(null);
+  const pickerReturnCheckRef = useRef<number | null>(null);
   const isSending = sendingFile !== null || outgoingOffer !== null;
   const activeTransfer = sendingFile ?? receivingFile;
   const displaySessionId =
@@ -82,7 +93,7 @@ function App() {
   const { isActive: wakeLockActive } = useScreenWakeLock(isTransferInFlight);
   const [offerElapsedSeconds, setOfferElapsedSeconds] = useState(0);
   const [pickerPending, setPickerPending] = useState<{
-    kind: "files" | "folder";
+    kind: "files";
     startedAt: number;
   } | null>(null);
   const [pickerElapsedSeconds, setPickerElapsedSeconds] = useState(0);
@@ -103,11 +114,79 @@ function App() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const prevStatusRef = useRef<typeof status>(status);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [scanPanelOpen, setScanPanelOpen] = useState(false);
+  const [scanJoinPending, setScanJoinPending] = useState(false);
+  const scanDedupRef = useRef<{
+    sessionId: string;
+    timestampMs: number;
+  } | null>(null);
+  const lastHistoryToastIdRef = useRef<string | null>(null);
+
+  const showToast = useCallback((message: string, durationMs = 5000): void => {
+    if (toastTimerRef.current !== null)
+      window.clearTimeout(toastTimerRef.current);
+    setToast(message);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), durationMs);
+  }, []);
+
+  const {
+    videoRef: scanVideoRef,
+    isActive: scanActive,
+    errorMessage: scanError,
+    start: startScan,
+    stop: stopScan,
+  } = useQrScanner({
+    onDecode: (text) => {
+      const scannedSessionId = normalizeScannedSessionId(text);
+
+      if (!scannedSessionId) {
+        logEvent("ui", "qr-scan-invalid", { reason: "format" });
+        showToast("Invalid QR code for this app.");
+        return;
+      }
+
+      if (status !== "idle") {
+        logEvent("ui", "qr-scan-invalid", {
+          reason: "blocked-by-state",
+          status,
+        });
+        showToast("Finish the current connection flow before scanning again.");
+        return;
+      }
+
+      const now = Date.now();
+      const previous = scanDedupRef.current;
+      if (
+        previous &&
+        previous.sessionId === scannedSessionId &&
+        now - previous.timestampMs < 4000
+      ) {
+        logEvent("ui", "qr-scan-invalid", { reason: "duplicate" });
+        return;
+      }
+
+      scanDedupRef.current = { sessionId: scannedSessionId, timestampMs: now };
+      logEvent("ui", "qr-scan-success", { sessionId: scannedSessionId });
+
+      setScanJoinPending(true);
+      stopScan();
+      setScanPanelOpen(false);
+      setJoinInput(scannedSessionId);
+      setJoinedSessionId(scannedSessionId);
+      showToast("QR scanned. Connecting...");
+      joinSession(scannedSessionId);
+    },
+  });
 
   function clearPickerPending(reason: string): void {
     if (pickerTimeoutRef.current !== null) {
       window.clearTimeout(pickerTimeoutRef.current);
       pickerTimeoutRef.current = null;
+    }
+    if (pickerReturnCheckRef.current !== null) {
+      window.clearTimeout(pickerReturnCheckRef.current);
+      pickerReturnCheckRef.current = null;
     }
     setPickerPending((current) => {
       if (!current) return current;
@@ -131,10 +210,7 @@ function App() {
 
   useEffect(() => {
     if (prevStatusRef.current === "connected" && status === "disconnected") {
-      if (toastTimerRef.current !== null)
-        window.clearTimeout(toastTimerRef.current);
-      setToast("The other device has disconnected.");
-      toastTimerRef.current = window.setTimeout(() => setToast(null), 5000);
+      showToast("The other device has disconnected.");
       // Fully reset local join state when a live session drops.
       setJoinInput("");
       setJoinedSessionId(null);
@@ -142,16 +218,26 @@ function App() {
       close();
     }
     if (status === "error" && errorMessage) {
-      if (toastTimerRef.current !== null)
-        window.clearTimeout(toastTimerRef.current);
-      setToast(errorMessage);
-      toastTimerRef.current = window.setTimeout(() => setToast(null), 5000);
+      showToast(errorMessage);
       // Recover to the initial UI so the user can immediately retry joining.
       setJoinedSessionId(null);
       close();
     }
     prevStatusRef.current = status;
-  }, [status, errorMessage, close]);
+  }, [status, errorMessage, close, showToast]);
+
+  useEffect(() => {
+    if (status === "idle" || status === "connected" || status === "error") {
+      setScanJoinPending(false);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (status === "idle") return;
+    if (!scanPanelOpen) return;
+    stopScan();
+    setScanPanelOpen(false);
+  }, [status, scanPanelOpen, stopScan]);
 
   // Cleanup toast timer on unmount
   useEffect(() => {
@@ -160,6 +246,50 @@ function App() {
         window.clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!displaySessionId) {
+      setQrDataUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    void QRCode.toDataURL(displaySessionId, {
+      margin: 1,
+      width: 220,
+      errorCorrectionLevel: "M",
+    })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displaySessionId]);
+
+  useEffect(() => {
+    if (!scanError) return;
+    logEvent("ui", "qr-scan-fail", { message: scanError });
+    showToast(scanError);
+  }, [scanError, showToast]);
+
+  useEffect(() => {
+    const latest = history[history.length - 1];
+    if (!latest) return;
+    if (latest.id === lastHistoryToastIdRef.current) return;
+    lastHistoryToastIdRef.current = latest.id;
+    if (latest.status !== "complete") return;
+
+    const directionLabel = latest.direction === "sent" ? "Sent" : "Received";
+    showToast(
+      `${directionLabel} ${latest.relativePath} (${formatBytes(latest.size)})`,
+      3600,
+    );
+  }, [history, showToast]);
 
   useEffect(() => {
     if (!outgoingOffer) {
@@ -183,18 +313,53 @@ function App() {
       );
     }, 1000);
 
+    function scheduleAutoClearIfNoSelection(): void {
+      if (pickerReturnCheckRef.current !== null) {
+        window.clearTimeout(pickerReturnCheckRef.current);
+      }
+      // Give the browser a short window to dispatch `change` if the user did
+      // actually pick files; if no transfer has started by then, treat the
+      // picker dismissal as an implicit cancel.
+      pickerReturnCheckRef.current = window.setTimeout(() => {
+        pickerReturnCheckRef.current = null;
+        const filesCount = filesInputRef.current?.files?.length ?? 0;
+        if (filesCount > 0) return;
+        if (outgoingOffer || sendingFile) return;
+        clearPickerPending("picker-dismissed");
+      }, 350);
+    }
+
+    function handleWindowFocus(): void {
+      scheduleAutoClearIfNoSelection();
+    }
+
+    function handleVisibilityChange(): void {
+      if (document.visibilityState === "visible") {
+        scheduleAutoClearIfNoSelection();
+      }
+    }
+
     pickerTimeoutRef.current = window.setTimeout(() => {
       clearPickerPending("timeout");
     }, 60_000);
 
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       window.clearInterval(interval);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pickerTimeoutRef.current !== null) {
         window.clearTimeout(pickerTimeoutRef.current);
         pickerTimeoutRef.current = null;
       }
+      if (pickerReturnCheckRef.current !== null) {
+        window.clearTimeout(pickerReturnCheckRef.current);
+        pickerReturnCheckRef.current = null;
+      }
     };
-  }, [pickerPending]);
+  }, [pickerPending, outgoingOffer, sendingFile]);
 
   useEffect(() => {
     // Clear picker-pending once the transfer pipeline has actually started.
@@ -277,8 +442,28 @@ function App() {
     };
   }, [incomingOffer]);
 
+  async function openScanPanel(): Promise<void> {
+    if (status !== "idle") {
+      showToast("Open QR scanner only when no active connection is running.");
+      return;
+    }
+
+    logEvent("ui", "qr-scan-start");
+    setScanPanelOpen(true);
+    const started = await startScan();
+    if (!started) setScanPanelOpen(false);
+  }
+
+  function closeScanPanel(): void {
+    logEvent("ui", "qr-scan-cancel");
+    stopScan();
+    setScanPanelOpen(false);
+  }
+
   function handleCreateSession(): void {
     setJoinedSessionId(null);
+    stopScan();
+    setScanPanelOpen(false);
     createSession();
   }
 
@@ -286,6 +471,8 @@ function App() {
     event.preventDefault();
     const trimmed = joinInput.trim();
     if (!trimmed) return;
+    stopScan();
+    setScanPanelOpen(false);
     setJoinedSessionId(trimmed);
     joinSession(trimmed);
   }
@@ -309,19 +496,12 @@ function App() {
   }
 
   function openFilePicker(): void {
+    clearTransferError();
     logEvent("ui", "file-picker-open-clicked", { kind: "files" });
     setPickerPending({ kind: "files", startedAt: Date.now() });
     setPickerElapsedSeconds(0);
     setShowUploadMenu(false);
     filesInputRef.current?.click();
-  }
-
-  function openFolderPicker(): void {
-    logEvent("ui", "file-picker-open-clicked", { kind: "folder" });
-    setPickerPending({ kind: "folder", startedAt: Date.now() });
-    setPickerElapsedSeconds(0);
-    setShowUploadMenu(false);
-    folderInputRef.current?.click();
   }
 
   async function copySessionId(): Promise<void> {
@@ -371,6 +551,10 @@ function App() {
 
         {status === "idle" && (
           <section className="onboarding">
+            <p className="network-tip" role="note">
+              Best results: keep both devices on the same Wi-Fi network when
+              creating or joining a session.
+            </p>
             <button
               type="button"
               className="primary-cta"
@@ -395,6 +579,47 @@ function App() {
                 />
                 <button type="submit">Join</button>
               </div>
+              <button
+                type="button"
+                className="scan-toggle"
+                onClick={() =>
+                  scanPanelOpen ? closeScanPanel() : void openScanPanel()
+                }
+                disabled={scanJoinPending}
+              >
+                {scanPanelOpen ? "Close scanner" : "Scan QR to join"}
+              </button>
+
+              {scanPanelOpen && (
+                <section className="scan-panel" aria-live="polite">
+                  <div className="scan-video-wrap">
+                    <video
+                      ref={scanVideoRef}
+                      className="scan-video"
+                      muted
+                      playsInline
+                    />
+                  </div>
+                  <p className="scan-hint">
+                    {scanActive
+                      ? "Point your camera at the session QR code."
+                      : "Starting camera..."}
+                  </p>
+                  <div className="scan-actions">
+                    {!scanActive && (
+                      <button
+                        type="button"
+                        onClick={() => void openScanPanel()}
+                      >
+                        Retry camera
+                      </button>
+                    )}
+                    <button type="button" onClick={closeScanPanel}>
+                      Cancel
+                    </button>
+                  </div>
+                </section>
+              )}
             </form>
           </section>
         )}
@@ -408,6 +633,20 @@ function App() {
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
+            {role === "host" && (
+              <div className="share-qr">
+                {qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt="QR code for joining this session"
+                    width={170}
+                    height={170}
+                  />
+                ) : (
+                  <p className="share-qr-fallback">Generating QR...</p>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -432,9 +671,6 @@ function App() {
                     <button type="button" onClick={openFilePicker}>
                       Files
                     </button>
-                    <button type="button" onClick={openFolderPicker}>
-                      Folder
-                    </button>
                   </div>
                 )}
               </div>
@@ -443,15 +679,6 @@ function App() {
                 ref={filesInputRef}
                 type="file"
                 multiple
-                onChange={handleFilesChosen}
-                disabled={isUploadBusy}
-                className="hidden-picker"
-              />
-              <input
-                ref={folderInputRef}
-                type="file"
-                // @ts-expect-error -- non-standard attribute, only recognized by Chromium
-                webkitdirectory=""
                 onChange={handleFilesChosen}
                 disabled={isUploadBusy}
                 className="hidden-picker"

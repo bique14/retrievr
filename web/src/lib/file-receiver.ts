@@ -60,9 +60,12 @@ export class FileReceiver {
   private readonly callbacks: FileReceiverCallbacks;
   private pendingOffer: BatchOfferInfo | null = null;
   private directoryHandle: FileSystemDirectoryHandle | null = null;
+  private useDownloadFallback = false;
   private fileCount = 0;
   private currentFile: ReceivingFileInfo | null = null;
   private writable: FileSystemWritableFileStream | null = null;
+  private downloadChunks: ArrayBuffer[] = [];
+  private downloadMimeType = "application/octet-stream";
   private bytesReceived = 0;
   private queue: Promise<void> = Promise.resolve();
 
@@ -83,6 +86,19 @@ export class FileReceiver {
     if (!offer) return;
 
     logEvent("receive", "accept-clicked");
+    if (typeof window.showDirectoryPicker !== "function") {
+      this.pendingOffer = null;
+      this.useDownloadFallback = true;
+      this.fileCount = offer.fileCount;
+      this.channel.send(
+        JSON.stringify({ type: "batch-accept" } satisfies BatchAcceptMessage),
+      );
+      logEvent("receive", "batch-accept-sent", {
+        mode: "download-fallback",
+      });
+      return;
+    }
+
     let handle: FileSystemDirectoryHandle;
     try {
       handle = await window.showDirectoryPicker({ mode: "readwrite" });
@@ -95,6 +111,7 @@ export class FileReceiver {
     logEvent("receive", "directory-picker-resolved");
 
     this.pendingOffer = null;
+    this.useDownloadFallback = false;
     this.directoryHandle = handle;
     this.fileCount = offer.fileCount;
     this.channel.send(
@@ -161,9 +178,27 @@ export class FileReceiver {
     });
     this.writable = null;
     this.directoryHandle = null;
+    this.useDownloadFallback = false;
+    this.downloadChunks = [];
+    this.downloadMimeType = "application/octet-stream";
     this.currentFile = null;
     this.fileCount = 0;
     this.bytesReceived = 0;
+  }
+
+  private downloadCurrentFile(): void {
+    if (!this.currentFile) return;
+    const blob = new Blob(this.downloadChunks, { type: this.downloadMimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = this.currentFile.name;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
   private async handleControlMessage(raw: string): Promise<void> {
@@ -191,7 +226,7 @@ export class FileReceiver {
       }
 
       case "file-info": {
-        if (!this.directoryHandle) {
+        if (!this.directoryHandle && !this.useDownloadFallback) {
           this.callbacks.onError(
             "Received file data before the transfer was accepted.",
           );
@@ -215,16 +250,39 @@ export class FileReceiver {
         };
         this.bytesReceived = 0;
 
-        const handle = await this.resolveFileHandle(
-          this.directoryHandle,
-          segments,
-        );
+        if (this.useDownloadFallback) {
+          if (segments.length !== 1) {
+            this.callbacks.onError(
+              "This browser can only receive plain files right now. Folder transfers are disabled.",
+            );
+            return;
+          }
+          this.downloadChunks = [];
+          this.downloadMimeType =
+            message.mimeType || "application/octet-stream";
+          this.callbacks.onFileStart(this.currentFile);
+          return;
+        }
+
+        const directoryHandle = this.directoryHandle;
+        if (!directoryHandle) {
+          this.callbacks.onError(
+            "Received file data before the transfer was accepted.",
+          );
+          return;
+        }
+
+        const handle = await this.resolveFileHandle(directoryHandle, segments);
         this.writable = await handle.createWritable();
         this.callbacks.onFileStart(this.currentFile);
         return;
       }
 
       case "transfer-complete": {
+        if (this.useDownloadFallback) {
+          this.downloadCurrentFile();
+          this.downloadChunks = [];
+        }
         await this.writable?.close();
         this.writable = null;
         if (this.currentFile) this.callbacks.onFileComplete(this.currentFile);
@@ -253,9 +311,19 @@ export class FileReceiver {
   }
 
   private async handleChunk(frame: ArrayBuffer): Promise<void> {
+    const { payload } = decodeChunkFrame(frame);
+    if (this.useDownloadFallback) {
+      this.downloadChunks.push(payload.slice().buffer);
+      this.bytesReceived += payload.length;
+      this.callbacks.onProgress({
+        bytesReceived: this.bytesReceived,
+        totalBytes: this.currentFile?.size ?? 0,
+      });
+      return;
+    }
+
     if (!this.writable) return; // stray chunk before file-info or after completion
 
-    const { payload } = decodeChunkFrame(frame);
     await this.writable.write(payload);
     this.bytesReceived += payload.length;
     this.callbacks.onProgress({
